@@ -1,0 +1,153 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+```{r load-packages, include=FALSE}
+
+
+library(MASS)
+library(car)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+```
+
+```{r }
+# Load the data
+data <- read.csv("/Users/binsalim/Desktop/final/fuel_receipts_costs_eia923.csv")
+#View(data)
+# Drop selected columns
+data_subset <- data %>% 
+  select(-c(rowid,natural_gas_delivery_contract_type_code, moisture_content_pct, chlorine_content_ppm, mercury_content_ppm, mine_id_pudl, mine_id_pudl_label))
+
+# Remove duplicate rows
+data_subset <- unique(data_subset)
+data_subset <- na.omit(data_subset)
+
+# Randomly sample about 2% of the data using a random 4-digit number as the seed
+set.seed(2023)
+sampled_data <- data_subset[sample(nrow(data_subset), round(0.02 * nrow(data_subset))),]
+
+# Split the sampled data into training and test sets
+train_idx <- sample(nrow(sampled_data), round(0.75 * nrow(sampled_data)))
+train_data <- sampled_data[train_idx, ]
+test_data <- sampled_data[-train_idx, ]
+```
+
+```{r }
+# Select the columns to cluster on
+cols_to_cluster <- c("energy_source_code", "fuel_mmbtu_per_unit", "sulfur_content_pct", "ash_content_pct", "fuel_cost_per_mmbtu")
+
+# Subset the data on the selected columns
+train_data_cluster <- train_data[, cols_to_cluster]
+test_data_cluster <- test_data[, cols_to_cluster]
+
+# Convert categorical variables to factors
+train_data_cluster$energy_source_code <- as.factor(train_data_cluster$energy_source_code)
+test_data_cluster$energy_source_code <- as.factor(test_data_cluster$energy_source_code)
+
+# Scale the numeric variables
+train_data_cluster_scaled <- scale(train_data_cluster[, -1])
+test_data_cluster_scaled <- scale(test_data_cluster[, -1])
+
+# Combine the scaled numeric variables with the categorical variables
+train_data_cluster <- cbind(train_data_cluster[, 1], train_data_cluster_scaled)
+test_data_cluster <- cbind(test_data_cluster[, 1], test_data_cluster_scaled)
+
+```
+
+```{r }
+# Determine the optimal number of clusters using elbow method
+wss <- c()
+for(i in 1:15) {
+  set.seed(123)
+  km <- kmeans(train_data_cluster_scaled, centers = i, nstart = 25)
+  wss[i] <- sum(km$withinss)
+}
+plot(1:15, wss, type = "b", xlab = "Number of Clusters", ylab = "Within groups sum of squares")
+
+# Choose the number of clusters based on the elbow point
+k <- 4 
+
+```
+
+```{r }
+# Perform k-means clustering on the training data
+set.seed(2023)
+km <- kmeans(train_data_cluster_scaled, centers = k, nstart = 25)
+
+#Before Custers are added to the data
+train_data_cluster <- data.frame(train_data_cluster_scaled)
+View(train_data_cluster_scaled)
+train_data_cluster_scaled <- data.frame(train_data_cluster_scaled)
+```
+
+```{r }
+#Extra Credits:
+model <- lm(fuel_cost_per_mmbtu ~ ., data = train_data_cluster_scaled)
+
+vif(model)
+
+stepwise <- stepAIC(model, direction = "both", trace = FALSE)
+summary(stepwise)
+test_data_cluster <- data.frame(test_data_cluster)
+
+predicted <- predict(stepwise, newdata = test_data_cluster)
+
+RMSE_Pre <- sqrt(mean((predicted - test_data_cluster$fuel_cost_per_mmbtu)^2))
+RMSE_Pre
+
+R2_Pre <- summary(stepwise)$adj.r.squared
+R2_Pre
+
+#Clusters added to the data
+# Add the cluster assignments to the data
+train_data_cluster <- cbind(train_data_cluster, km$cluster)
+test_data_cluster <- cbind(test_data_cluster, rep(0, nrow(test_data_cluster))) # create a placeholder column for cluster assignments in test data
+
+# Rename the cluster assignment column
+colnames(train_data_cluster)[5] <- "cluster"
+colnames(test_data_cluster)[5] <- "cluster"
+
+# Print the number of observations in each cluster in the training data
+table(km$cluster)
+train_data_cluster <- data.frame(train_data_cluster)
+#Extra Credits:
+model <- lm(fuel_cost_per_mmbtu ~ ., data = train_data_cluster)
+
+View(train_data_cluster)
+vif(model)
+
+stepwise <- stepAIC(model, direction = "both", trace = FALSE)
+summary(stepwise)
+test_data_cluster <- data.frame(test_data_cluster)
+predicted <- predict(stepwise, newdata = test_data_cluster)
+
+RMSE_Post <- sqrt(mean((predicted - test_data_cluster$fuel_cost_per_mmbtu)^2))
+RMSE_Post
+
+R2_Post <- summary(stepwise)$adj.r.squared
+R2_Post
+
+#Did adding cluster information improve your prediction?
+cat("if we compare based on RMSE there is no improvement becuase the value of the RMSE after adding the cluster is",RMSE_Post)
+cat("while the value before adding the cluster was" ,RMSE_Pre)
+cat("However if we compare based on the R-Squared. Then there is improvement as this is the value before adding the clusters",R2_Pre)
+cat("However, after adding the clusters to the data the value went up to", R2_Post)
+
+```
+
+```{r }
+
+```
+
+```{r }
+
+```
+
+```{r }
+
+```
+
+
